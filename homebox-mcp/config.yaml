@@ -1,9 +1,9 @@
 ---
 name: "Homebox MCP Server"
 description: "MCP Server to manage Homebox inventory via AI"
-version: "0.5.1dev9"
+version: "0.7.0"
 slug: "homebox-mcp"
-url: "https://github.com/MB901/homebox-mcp"
+url: "https://github.com/beausmith/homebox-mcp"
 init: false
 arch:
   - amd64

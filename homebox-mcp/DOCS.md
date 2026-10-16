@@ -366,4 +366,4 @@ ha addons logs homebox-mcp
 
 For issues or suggestions:
 
-- Open an issue on the [GitHub repository](https://github.com/oangelo/homebox-mcp)
+- Open an issue on the [GitHub repository](https://github.com/beausmith/homebox-mcp)

@@ -47,7 +47,7 @@ interact with your Homebox inventory. You can:
 
 ### One-click install
 
-[![Open your Home Assistant instance and show the dashboard of the Homebox MCP Server add-on, ready to install.](https://my.home-assistant.io/badges/supervisor_addon.svg)](https://my.home-assistant.io/redirect/supervisor_addon/?addon=homebox-mcp&repository_url=https%3A%2F%2Fgithub.com%2FMB901%2Fhomebox-mcp)
+[![Open your Home Assistant instance and show the dashboard of the Homebox MCP Server add-on, ready to install.](https://my.home-assistant.io/badges/supervisor_addon.svg)](https://my.home-assistant.io/redirect/supervisor_addon/?addon=homebox-mcp&repository_url=https%3A%2F%2Fgithub.com%2Fbeausmith%2Fhomebox-mcp)
 
 This adds the repository and takes you straight to the add-on's page — click **Install** there.
 
@@ -56,7 +56,7 @@ This adds the repository and takes you straight to the add-on's page — click *
 
 1. In Home Assistant, go to **Settings** → **Add-ons** → **Add-on Store**
 2. Click the menu (⋮) → **Repositories**
-3. Add: `https://github.com/MB901/homebox-mcp`
+3. Add: `https://github.com/beausmith/homebox-mcp`
 4. Click **Add** → **Close**
 5. Search for "Homebox MCP Server" in the store
 6. Click **Install**

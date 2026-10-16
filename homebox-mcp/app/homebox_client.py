@@ -14,6 +14,7 @@ shape the rest of the addon (and the MCP tools) already expect.
 import asyncio
 import ipaddress
 import logging
+import re
 import socket
 from pathlib import PurePosixPath
 from typing import Any
@@ -39,7 +40,7 @@ _MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 # LLM-supplied URL: cap on redirect hops followed, and a descriptive
 # User-Agent (some image hosts/CDNs reject the default httpx one).
 _MAX_REDIRECTS = 5
-_DOWNLOAD_USER_AGENT = "homebox-mcp (+https://github.com/MB901/homebox-mcp)"
+_DOWNLOAD_USER_AGENT = "homebox-mcp (+https://github.com/beausmith/homebox-mcp)"
 
 # Homebox's own field length limits (Ent schema `.MaxLen()`, the real DB
 # constraint). Some of these (name, description) are also cleanly rejected
@@ -98,6 +99,53 @@ _PDF_MAGIC = b"%PDF-"
 # Homebox's attachment.Type enum values a caller may set explicitly
 # ("thumbnail" is server-generated and deliberately excluded).
 _VALID_ATTACHMENT_TYPES = frozenset({"photo", "manual", "warranty", "receipt", "attachment"})
+
+# Every id a tool accepts is interpolated into a URL path. Homebox ids are
+# UUIDs, so anything else is rejected before a request is built (an LLM
+# supplied "../" or a stray query string must never reach the URL).
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+# Homebox returns this for a date field that was never set ("0001-01-01T...").
+# Sending it back is harmless, but omitting it keeps the field empty and the
+# payload readable.
+_EMPTY_DATE_PREFIX = "0001-"
+
+# Every scalar that PUT /entities/{id} (repo.EntityUpdate) accepts, per the
+# Homebox v0.26.2 swagger. Used by _full_entity_body() so a full-replacement
+# PUT never silently blanks a field the caller did not mention.
+_ENTITY_SCALAR_FIELDS = (
+    "name",
+    "description",
+    "quantity",
+    "insured",
+    "archived",
+    "assetId",
+    "serialNumber",
+    "modelNumber",
+    "manufacturer",
+    "lifetimeWarranty",
+    "warrantyExpires",
+    "warrantyDetails",
+    "purchasePrice",
+    "purchaseDate",
+    "purchaseFrom",
+    "soldDate",
+    "soldTo",
+    "soldPrice",
+    "soldNotes",
+    "notes",
+    "syncChildEntityLocations",
+)
+
+
+def _validate_id(value: str, name: str = "id") -> str:
+    """Return `value` if it looks like a UUID, else raise ValueError."""
+    if not isinstance(value, str) or not _UUID_RE.match(value):
+        raise ValueError(f"Invalid {name}: expected a UUID, got {value!r}")
+    return value
 
 
 class HomeboxClient:
@@ -175,7 +223,15 @@ class HomeboxClient:
             logger.error("Authentication failed. Please check your Homebox API token.")
             raise ValueError("Invalid or expired Homebox API token. Please generate a new token in Homebox settings.")
 
-        response.raise_for_status()
+        if response.status_code >= 400:
+            # Report the status, the relative endpoint and Homebox's own error
+            # text (useful for the calling model to self-correct, e.g. a 422
+            # validation message) - never the full URL, headers or token.
+            detail = response.text[:300].strip()
+            raise ValueError(
+                f"Homebox API returned HTTP {response.status_code} for {method} {endpoint}"
+                + (f": {detail}" if detail else "")
+            )
 
         if response.status_code == 204:
             return None
@@ -328,10 +384,42 @@ class HomeboxClient:
             "imageId",
             "attachments",
             "entityType",
+            "fields",
+            "syncChildEntityLocations",
         ):
             if key in entity:
                 normalized[key] = entity[key]
         return normalized
+
+    @staticmethod
+    def _full_entity_body(current: dict[str, Any]) -> dict[str, Any]:
+        """Build a complete ``PUT /entities/{id}`` payload from an entity's
+        current state (entities mode only).
+
+        Homebox's entity update is a full replacement, not a patch: every
+        field missing from the payload is reset server-side. This copies
+        every scalar ``repo.EntityUpdate`` accepts, keeps the parent, the
+        entity type, the tags (``tags`` objects -> ``tagIds``) and the custom
+        ``fields`` list, and drops Homebox's "never set" date sentinel so
+        empty dates stay empty. Callers overlay their changes on top.
+        """
+        body: dict[str, Any] = {"id": current.get("id")}
+        for key in _ENTITY_SCALAR_FIELDS:
+            if key not in current:
+                continue
+            value = current[key]
+            if isinstance(value, str) and value.startswith(_EMPTY_DATE_PREFIX):
+                continue
+            body[key] = value
+        parent = current.get("parent") or {}
+        if parent.get("id"):
+            body["parentId"] = parent["id"]
+        entity_type = current.get("entityType") or {}
+        if entity_type.get("id"):
+            body["entityTypeId"] = entity_type["id"]
+        body["tagIds"] = [t["id"] for t in (current.get("tags") or []) if t.get("id")]
+        body["fields"] = current.get("fields") or []
+        return body
 
     async def _list_entities(self, params: dict[str, Any]) -> list[dict[str, Any]]:
         """List entities (entities mode), returning the raw item array."""
@@ -373,21 +461,17 @@ class HomeboxClient:
         """
         locations = await self.get_locations()
 
-        if await self._get_api_mode() == "legacy":
-            # The legacy /locations list doesn't include parent info (a
-            # long-standing Homebox limitation), so each location's full
-            # record must be fetched individually to learn its parent.
-            parent_of: dict[str, str | None] = {}
-            for loc in locations:
-                detail = await self.get_location(loc["id"])
-                parent = detail.get("parent")
-                parent_of[loc["id"]] = parent.get("id") if parent else None
-        else:
-            # Entities mode: get_locations() already eager-loads each
-            # entity's direct parent, no extra requests needed.
-            parent_of = {
-                loc["id"]: (loc.get("parent") or {}).get("id") for loc in locations
-            }
+        if await self._get_api_mode() == "entities":
+            return await self._get_location_tree_entities(locations)
+
+        # The legacy /locations list doesn't include parent info (a
+        # long-standing Homebox limitation), so each location's full
+        # record must be fetched individually to learn its parent.
+        parent_of: dict[str, str | None] = {}
+        for loc in locations:
+            detail = await self.get_location(loc["id"])
+            parent = detail.get("parent")
+            parent_of[loc["id"]] = parent.get("id") if parent else None
 
         nodes: dict[str, dict[str, Any]] = {
             loc["id"]: {
@@ -410,6 +494,65 @@ class HomeboxClient:
 
         return roots
 
+    async def _get_location_tree_entities(
+        self, locations: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Entities-mode (Homebox v0.26+) implementation of get_location_tree().
+
+        On Homebox v0.26.2 neither ``GET /entities?isLocation=true`` nor
+        ``GET /entities/{id}`` carries ``parent`` or ``itemCount`` for a
+        location, so building the tree from parent links flattens every
+        nested location. The hierarchy therefore comes from
+        ``GET /entities/tree`` (the endpoint the Homebox UI itself uses) and
+        item counts are derived from the item list.
+        """
+        by_id = {loc.get("id"): loc for loc in locations}
+
+        counts: dict[str, int] = {}
+        for item in await self.get_items():
+            parent_id = (item.get("location") or {}).get("id")
+            if parent_id:
+                counts[parent_id] = counts.get(parent_id, 0) + 1
+
+        tree = await self._request("GET", "/entities/tree")
+
+        def convert(node: dict[str, Any]) -> dict[str, Any]:
+            node_id = node.get("id")
+            loc = by_id.get(node_id, {})
+            return {
+                "id": node_id,
+                "name": node.get("name", loc.get("name")),
+                "description": loc.get("description", ""),
+                "item_count": counts.get(node_id, 0),
+                "children": [
+                    convert(child)
+                    for child in node.get("children") or []
+                    if (child.get("type") or "location") == "location"
+                ],
+            }
+
+        return [
+            convert(node)
+            for node in tree or []
+            if (node.get("type") or "location") == "location"
+        ]
+
+    @staticmethod
+    def _find_in_tree(
+        nodes: list[dict[str, Any]], wanted: str, parent: dict[str, Any] | None = None
+    ) -> tuple[dict[str, Any] | None, dict[str, Any]] | None:
+        """Depth-first search of a /entities/tree result for `wanted`.
+
+        Returns (parent_node_or_None, node) or None if not found.
+        """
+        for node in nodes:
+            if node.get("id") == wanted:
+                return parent, node
+            found = HomeboxClient._find_in_tree(node.get("children") or [], wanted, node)
+            if found:
+                return found
+        return None
+
     async def get_location(self, location_id: str) -> dict[str, Any]:
         """Get a specific location by ID.
 
@@ -419,11 +562,34 @@ class HomeboxClient:
         Returns:
             Location object (with parent/children when available).
         """
+        _validate_id(location_id, "location_id")
         if await self._get_api_mode() == "legacy":
             return await self._request("GET", f"/locations/{location_id}")
 
-        # EntityOut already exposes parent, children and itemCount.
-        return await self._request("GET", f"/entities/{location_id}")
+        entity = await self._request("GET", f"/entities/{location_id}")
+
+        # Homebox v0.26.2's entity detail carries neither `parent` nor
+        # `children` for a location; fill both in from /entities/tree so
+        # callers (and update_location's parent preservation) still work.
+        if "parent" not in entity or "children" not in entity:
+            try:
+                tree = await self._request("GET", "/entities/tree")
+            except ValueError as exc:
+                logger.warning("Could not load the location tree: %s", exc)
+                tree = None
+            found = self._find_in_tree(tree or [], location_id)
+            if found:
+                parent, node = found
+                if "parent" not in entity:
+                    entity["parent"] = (
+                        {"id": parent.get("id"), "name": parent.get("name")} if parent else None
+                    )
+                if "children" not in entity:
+                    entity["children"] = [
+                        {"id": c.get("id"), "name": c.get("name"), "type": c.get("type")}
+                        for c in node.get("children") or []
+                    ]
+        return entity
 
     async def create_location(
         self,
@@ -443,6 +609,8 @@ class HomeboxClient:
         """
         self._check_max_length("name", name)
         self._check_max_length("description", description)
+        if parent_id:
+            _validate_id(parent_id, "parent_id")
 
         data: dict[str, Any] = {"name": name}
         if description:
@@ -478,6 +646,9 @@ class HomeboxClient:
         """
         self._check_max_length("name", name)
         self._check_max_length("description", description)
+        _validate_id(location_id, "location_id")
+        if parent_id:
+            _validate_id(parent_id, "parent_id")
 
         # Fetch current location to preserve fields not provided.
         current = await self.get_location(location_id)
@@ -500,13 +671,18 @@ class HomeboxClient:
         if await self._get_api_mode() == "legacy":
             return await self._request("PUT", f"/locations/{location_id}", json=data)
 
-        # Preserve the entity type so the location keeps behaving as a container.
-        current_type_id = (
-            current.get("entityType", {}).get("id") if current.get("entityType") else None
-        )
-        if current_type_id:
-            data["entityTypeId"] = current_type_id
-        return await self._request("PUT", f"/entities/{location_id}", json=data)
+        # Entities mode: PUT is a full replacement, so start from the
+        # location's complete current state (incl. entity type, tags, custom
+        # fields) and overlay the requested changes.
+        body = self._full_entity_body(current)
+        body["id"] = location_id
+        body["name"] = data["name"]
+        body["description"] = data["description"]
+        if data["parentId"]:
+            body["parentId"] = data["parentId"]
+        else:
+            body.pop("parentId", None)
+        return await self._request("PUT", f"/entities/{location_id}", json=body)
 
     async def delete_location(self, location_id: str) -> None:
         """Delete a location.
@@ -514,6 +690,7 @@ class HomeboxClient:
         Args:
             location_id: The location UUID.
         """
+        _validate_id(location_id, "location_id")
         if await self._get_api_mode() == "legacy":
             await self._request("DELETE", f"/locations/{location_id}")
         else:
@@ -539,6 +716,10 @@ class HomeboxClient:
         Returns:
             List of item objects.
         """
+        if location_id:
+            _validate_id(location_id, "location_id")
+        if label_id:
+            _validate_id(label_id, "label_id")
         if await self._get_api_mode() == "legacy":
             params: dict[str, str] = {}
             if location_id:
@@ -580,6 +761,7 @@ class HomeboxClient:
         Returns:
             Item object with full details.
         """
+        _validate_id(item_id, "item_id")
         if await self._get_api_mode() == "legacy":
             return await self._request("GET", f"/items/{item_id}")
 
@@ -610,6 +792,9 @@ class HomeboxClient:
         """
         self._check_max_length("name", name)
         self._check_max_length("description", description)
+        _validate_id(location_id, "location_id")
+        for label in labels or []:
+            _validate_id(label, "label id")
 
         if await self._get_api_mode() == "legacy":
             data: dict[str, Any] = {
@@ -724,6 +909,11 @@ class HomeboxClient:
         self._check_max_length("purchase_from", purchase_from)
         self._check_max_length("sold_to", sold_to)
         self._check_max_length("sold_notes", sold_notes)
+        _validate_id(item_id, "item_id")
+        if location_id:
+            _validate_id(location_id, "location_id")
+        for label in labels or []:
+            _validate_id(label, "label id")
 
         if await self._get_api_mode() == "legacy":
             return await self._update_item_legacy(
@@ -743,82 +933,51 @@ class HomeboxClient:
                 notes=notes,
             )
 
-        # Entities mode: read the raw entity to preserve untouched fields.
+        # Entities mode. Homebox's PUT /entities/{id} is a full-replacement
+        # update, not a partial patch: any field missing from the payload is
+        # reset to its zero value server-side. Start from the entity's
+        # complete current state (every scalar, parent, entity type, tags
+        # and custom fields - see _full_entity_body) and overlay only what
+        # the caller passed.
         current = await self._request("GET", f"/entities/{item_id}")
-        current_parent = current.get("parent") or {}
-        current_type = current.get("entityType") or {}
-        current_tags = current.get("tags") or []
+        data = self._full_entity_body(current)
+        data["id"] = item_id
+        data.setdefault("name", current.get("name", ""))
+        data.setdefault("quantity", current.get("quantity", 1))
 
-        # Homebox's PUT /entities/{id} is a full-replacement update, not a
-        # partial patch: any field missing from this payload is reset to
-        # its zero value server-side, not left unchanged. Every field below
-        # must therefore always be present, falling back to its current
-        # value when the caller didn't pass one — the same pattern already
-        # used for name/description/quantity/parentId.
-        data: dict[str, Any] = {
-            "id": item_id,
-            "name": name if name is not None else current.get("name", ""),
-            "description": (
-                description if description is not None else current.get("description", "")
-            ),
-            "quantity": quantity if quantity is not None else current.get("quantity", 1),
-            "parentId": location_id if location_id is not None else current_parent.get("id"),
-            "insured": insured if insured is not None else current.get("insured", False),
-            "archived": archived if archived is not None else current.get("archived", False),
-            "assetId": asset_id if asset_id is not None else current.get("assetId", ""),
-            "serialNumber": (
-                serial_number if serial_number is not None else current.get("serialNumber", "")
-            ),
-            "modelNumber": (
-                model_number if model_number is not None else current.get("modelNumber", "")
-            ),
-            "manufacturer": (
-                manufacturer if manufacturer is not None else current.get("manufacturer", "")
-            ),
-            "lifetimeWarranty": (
-                lifetime_warranty
-                if lifetime_warranty is not None
-                else current.get("lifetimeWarranty", False)
-            ),
+        overrides: dict[str, Any] = {
+            "name": name,
+            "description": description,
+            "quantity": quantity,
+            "insured": insured,
+            "archived": archived,
+            "assetId": asset_id,
+            "serialNumber": serial_number,
+            "modelNumber": model_number,
+            "manufacturer": manufacturer,
+            "lifetimeWarranty": lifetime_warranty,
             "warrantyExpires": (
-                self._normalize_date(warranty_expires)
-                if warranty_expires is not None
-                else current.get("warrantyExpires", "")
+                self._normalize_date(warranty_expires) if warranty_expires is not None else None
             ),
-            "warrantyDetails": (
-                warranty_details
-                if warranty_details is not None
-                else current.get("warrantyDetails", "")
-            ),
-            "purchasePrice": (
-                purchase_price if purchase_price is not None else current.get("purchasePrice", 0)
-            ),
+            "warrantyDetails": warranty_details,
+            "purchasePrice": purchase_price,
             "purchaseDate": (
-                self._normalize_date(purchase_date)
-                if purchase_date is not None
-                else current.get("purchaseDate", "")
+                self._normalize_date(purchase_date) if purchase_date is not None else None
             ),
-            "purchaseFrom": (
-                purchase_from if purchase_from is not None else current.get("purchaseFrom", "")
-            ),
-            "soldDate": (
-                self._normalize_date(sold_date)
-                if sold_date is not None
-                else current.get("soldDate", "")
-            ),
-            "soldTo": sold_to if sold_to is not None else current.get("soldTo", ""),
-            "soldPrice": sold_price if sold_price is not None else current.get("soldPrice", 0),
-            "soldNotes": sold_notes if sold_notes is not None else current.get("soldNotes", ""),
-            "notes": notes if notes is not None else current.get("notes", ""),
+            "purchaseFrom": purchase_from,
+            "soldDate": self._normalize_date(sold_date) if sold_date is not None else None,
+            "soldTo": sold_to,
+            "soldPrice": sold_price,
+            "soldNotes": sold_notes,
+            "notes": notes,
         }
-        if current_type.get("id"):
-            data["entityTypeId"] = current_type["id"]
-
-        # Tags (labels)
+        for key, value in overrides.items():
+            if value is not None:
+                data[key] = value
+        if location_id is not None:
+            data["parentId"] = location_id
         if labels is not None:
             data["tagIds"] = labels
-        elif current_tags:
-            data["tagIds"] = [tag["id"] for tag in current_tags]
 
         entity = await self._request("PUT", f"/entities/{item_id}", json=data)
         return self._normalize_item(entity)
@@ -890,6 +1049,7 @@ class HomeboxClient:
         Args:
             item_id: The item UUID.
         """
+        _validate_id(item_id, "item_id")
         if await self._get_api_mode() == "legacy":
             await self._request("DELETE", f"/items/{item_id}")
         else:
@@ -1094,6 +1254,7 @@ class HomeboxClient:
         Returns:
             Homebox's response: the item, including its updated attachments list.
         """
+        _validate_id(item_id, "item_id")
         if len(data) > _MAX_ATTACHMENT_BYTES:
             raise ValueError(
                 f"File is {len(data) / 1_048_576:.1f} MB, which exceeds the "
@@ -1178,6 +1339,7 @@ class HomeboxClient:
         Returns:
             Homebox's response: the item, including its updated attachments list.
         """
+        _validate_id(item_id, "item_id")
         self._check_url_extension(url)
 
         if not filename:
@@ -1211,6 +1373,7 @@ class HomeboxClient:
         Returns:
             Label object.
         """
+        _validate_id(label_id, "label_id")
         if await self._get_api_mode() == "legacy":
             return await self._request("GET", f"/labels/{label_id}")
         return await self._request("GET", f"/tags/{label_id}")
@@ -1302,6 +1465,7 @@ class HomeboxClient:
         Args:
             label_id: The label UUID.
         """
+        _validate_id(label_id, "label_id")
         if await self._get_api_mode() == "legacy":
             await self._request("DELETE", f"/labels/{label_id}")
         else:

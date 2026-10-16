@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-10-15
+
+Fork point: [beausmith/homebox-mcp](https://github.com/beausmith/homebox-mcp), built on
+MB901's `dev` branch (0.5.1dev9) because upstream `oangelo/homebox-mcp` has been
+inactive since February 2026 and MB901's PR #3 is unmerged. Verified live against
+Homebox v0.26.2.
+
+### Fixed
+
+- **Nested locations flattened on Homebox v0.26.2.** Neither
+  `GET /entities?isLocation=true` nor `GET /entities/{id}` returns `parent`,
+  `children` or `itemCount` for a location on 0.26.2, so the parent-link tree
+  builder put every location at the root. `homebox_get_location_tree` now reads
+  `GET /entities/tree` (the endpoint the Homebox UI uses) and derives item
+  counts from the item list; `homebox_get_location` fills `parent` and
+  `children` in from the tree, which also keeps `homebox_update_location` from
+  dropping a location's parent on rename.
+- **Updates wiped custom fields.** `PUT /entities/{id}` is a full replacement;
+  `homebox_update_item` and `homebox_update_location` now build the payload
+  from the entity's complete current state (every `repo.EntityUpdate` scalar,
+  parent, entity type, tags, custom `fields`, `syncChildEntityLocations`) and
+  overlay only the requested changes. Homebox's "never set" date sentinel
+  (`0001-01-01…`) is omitted so empty dates stay empty.
+- `homebox_get_item` / `homebox_list_items` now include `fields` (custom
+  fields) and `syncChildEntityLocations` in their output.
+
+### Security
+
+- Every id argument (item, location, label, parent, tag) is validated as a
+  UUID before it is interpolated into a URL path (ported from
+  sheepster-9k/homebox-mcp).
+- Homebox HTTP errors are re-raised with only the status code, method, relative
+  endpoint and Homebox's own error text - never the full URL, headers or token.
+
+### Changed
+
+- Repository metadata, install links and the dashboard footer point at this
+  fork. Version 0.7.0.
+
 ## [0.5.1dev9] - 2026-08-16
 
 ### Fixed
