@@ -93,14 +93,14 @@ additional_hosts:
     service: http://homeassistant:8099
 ```
 
-3. Use a URL no Claude.ai: `https://mcp.seudominio.com/sse`
+3. Use a URL no Claude.ai: `https://mcp.seudominio.com/mcp`
 
 ### Acesso Local
 
 Na rede local, acesse diretamente:
 
 ```
-http://homeassistant.local:8099/sse
+http://homeassistant.local:8099/mcp
 ```
 
 ## Autenticação MCP (Opcional)
@@ -121,7 +121,7 @@ O addon suporta autenticação Bearer token opcional para proteger o endpoint MC
 
 | Campo                        | Valor                                           |
 | ---------------------------- | ----------------------------------------------- |
-| **URL do servidor**          | `https://seu-dominio.com/sse`                   |
+| **URL do servidor**          | `https://seu-dominio.com/mcp`                   |
 | **ID do Cliente OAuth**      | `mcp` (ou qualquer texto)                       |
 | **Segredo do Cliente OAuth** | Cole o token gerado no addon                    |
 
@@ -130,7 +130,7 @@ O addon suporta autenticação Bearer token opcional para proteger o endpoint MC
 ### Claude.ai Web (Experimental)
 
 1. Acesse as configurações de MCP no Claude.ai
-2. Adicione a URL: `https://mcp.seudominio.com/sse`
+2. Adicione a URL: `https://mcp.seudominio.com/mcp`
 3. Configure OAuth conforme mostrado acima (opcional mas recomendado)
 
 ### Claude Desktop
@@ -142,7 +142,7 @@ Adicione ao seu `claude_desktop_config.json`:
   "mcpServers": {
     "homebox": {
       "command": "npx",
-      "args": ["mcp-remote", "https://mcp.seudominio.com/sse"]
+      "args": ["mcp-remote", "https://mcp.seudominio.com/mcp"]
     }
   }
 }
@@ -203,7 +203,7 @@ cd homebox-mcp/app
 python server.py
 
 # Testar com MCP Inspector
-npx @modelcontextprotocol/inspector --server-url http://localhost:8099/sse --transport http
+npx @modelcontextprotocol/inspector --server-url http://localhost:8099/mcp --transport http
 ```
 
 ## Licença

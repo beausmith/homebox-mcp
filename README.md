@@ -100,14 +100,14 @@ additional_hosts:
     service: http://homeassistant:8099
 ```
 
-3. Use the URL in Claude.ai: `https://mcp.yourdomain.com/sse`
+3. Use the URL in Claude.ai: `https://mcp.yourdomain.com/mcp`
 
 ### Local Access
 
 On the local network, access directly:
 
 ```
-http://homeassistant.local:8099/sse
+http://homeassistant.local:8099/mcp
 ```
 
 ## MCP Authentication (Optional)
@@ -126,19 +126,25 @@ The addon supports optional Bearer token authentication to protect the MCP endpo
 
 ### Configure in Claude.ai
 
-| Field                  | Value                                          |
-| ---------------------- | ---------------------------------------------- |
-| **Server URL**         | `https://your-domain.com/sse`                  |
-| **OAuth Client ID**    | `mcp` (or any text)                            |
-| **OAuth Client Secret**| Paste the token generated in the addon         |
+Customize → Connectors → **Add custom connector**:
+
+| Field                | Value                                                  |
+| -------------------- | ------------------------------------------------------ |
+| **MCP server URL**   | `https://your-domain.com/mcp`                          |
+| **Transport**        | Streamable HTTP (under Advanced)                       |
+| **Authentication**   | No sign-in                                             |
+| **Request headers**  | `authorization` = `Bearer <token>` (include the space) |
+
+Claude sends the header value exactly as typed, so keep the space between
+`Bearer` and the token. The **Request headers** section is a Claude.ai beta;
+if it is missing, see DOCS.md for the fallback.
 
 ## Using with Claude
 
-### Claude.ai Web (Experimental)
+### Claude.ai Web
 
-1. Access the MCP settings in Claude.ai
-2. Add the URL: `https://mcp.yourdomain.com/sse`
-3. Configure OAuth as shown above (optional but recommended)
+1. Expose the addon with a Cloudflare Tunnel (see DOCS.md)
+2. Add `https://mcp.yourdomain.com/mcp` as a custom connector, configured as above
 
 ### Claude Desktop
 
@@ -149,7 +155,7 @@ Add to your `claude_desktop_config.json`:
   "mcpServers": {
     "homebox": {
       "command": "npx",
-      "args": ["mcp-remote", "https://mcp.yourdomain.com/sse"]
+      "args": ["mcp-remote", "https://mcp.yourdomain.com/mcp"]
     }
   }
 }
@@ -210,7 +216,7 @@ cd homebox-mcp/app
 python server.py
 
 # Test with MCP Inspector
-npx @modelcontextprotocol/inspector --server-url http://localhost:8099/sse --transport http
+npx @modelcontextprotocol/inspector --server-url http://localhost:8099/mcp --transport http
 ```
 
 ## License

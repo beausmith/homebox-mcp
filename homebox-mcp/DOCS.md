@@ -79,15 +79,22 @@ log_level: "info"
 
 ### Claude.ai Configuration
 
-When authentication is enabled:
+Claude.ai custom connectors authenticate with OAuth or, in beta, with a fixed
+**request header**. This addon uses a fixed Bearer token, so use the request
+header route (Customize → Connectors → Add custom connector):
 
-| Field                    | Value                                       |
-| ------------------------ | ------------------------------------------- |
-| **Server URL**           | `https://your-domain.com/sse`               |
-| **OAuth Client ID**      | `mcp` (or any text)                         |
-| **OAuth Client Secret**  | Paste the token from the addon dashboard    |
+| Field                | Value                                                  |
+| -------------------- | ------------------------------------------------------ |
+| **MCP server URL**   | `https://your-domain.com/mcp`                          |
+| **Transport**        | Streamable HTTP (under Advanced)                       |
+| **Authentication**   | No sign-in                                             |
+| **Request headers**  | `authorization` = `Bearer <token>` (include the space) |
 
-**Important**: The token goes in the **OAuth Client Secret** field, not the Client ID.
+**Important**: Claude sends the header value exactly as typed, so `Bearer` and
+the token must be separated by a space. If the **Request headers** section is
+missing from the dialog, your Claude.ai organization does not have the beta
+yet; in that case run with `mcp_auth_enabled: false` behind a Cloudflare WAF
+rule that only allows Anthropic's egress range (`160.79.104.0/21`).
 
 ### How to Configure the Token
 
@@ -169,21 +176,23 @@ If Homebox is running externally:
 
 ## Connecting to the MCP Server
 
-The MCP server exposes a Streamable HTTP endpoint on port 8099, still mounted
-at the `/sse` path for backward compatibility with existing client configs.
+The MCP server exposes a Streamable HTTP endpoint on port 8099 at `/mcp`.
+The previous `/sse` path still works as an alias, so older client configs
+need no change (but Claude.ai warns about SSE for URLs ending in `/sse`,
+so prefer `/mcp` there).
 
 ### Local Access (Internal Network)
 
 On the same network as Home Assistant:
 
 ```
-http://homeassistant.local:8099/sse
+http://homeassistant.local:8099/mcp
 ```
 
 Or by IP:
 
 ```
-http://192.168.X.X:8099/sse
+http://192.168.X.X:8099/mcp
 ```
 
 ### External Access via Cloudflare Tunnel (Recommended)
@@ -229,7 +238,7 @@ additional_hosts:
 After configured, use in Claude.ai:
 
 ```
-https://mcp.yourdomain.com/sse
+https://mcp.yourdomain.com/mcp
 ```
 
 ### Ingress Access (Alternative)
@@ -238,7 +247,7 @@ HA Ingress requires session authentication, which makes external access difficul
 Use only for local browser access:
 
 ```
-https://your-home-assistant/api/hassio_ingress/<ingress_token>/sse
+https://your-home-assistant/api/hassio_ingress/<ingress_token>/mcp
 ```
 
 ### Configuring in Claude Desktop
@@ -254,7 +263,7 @@ Add to your `claude_desktop_config.json`:
   "mcpServers": {
     "homebox": {
       "command": "npx",
-      "args": ["mcp-remote", "https://mcp.yourdomain.com/sse"]
+      "args": ["mcp-remote", "https://mcp.yourdomain.com/mcp"]
     }
   }
 }
@@ -264,7 +273,7 @@ Add to your `claude_desktop_config.json`:
 
 1. Access the MCP settings in Claude.ai
 2. Add a new MCP server
-3. Paste the URL: `https://mcp.yourdomain.com/sse`
+3. Paste the URL: `https://mcp.yourdomain.com/mcp`
 4. OAuth: Configure Client ID as `mcp` and Client Secret as your token
 
 ### Testing the Connection
@@ -277,10 +286,10 @@ the official testing tool and correctly speaks the Streamable HTTP handshake
 
 ```bash
 # Local test
-npx @modelcontextprotocol/inspector --server-url http://homeassistant.local:8099/sse --transport http
+npx @modelcontextprotocol/inspector --server-url http://homeassistant.local:8099/mcp --transport http
 
 # Test via Cloudflare Tunnel
-npx @modelcontextprotocol/inspector --server-url https://mcp.yourdomain.com/sse --transport http
+npx @modelcontextprotocol/inspector --server-url https://mcp.yourdomain.com/mcp --transport http
 ```
 
 #### Via terminal (curl)
@@ -290,7 +299,7 @@ itself works — it can't complete the protocol handshake, so expect a
 `400 Bad Request` rather than a stream of data:
 
 ```bash
-curl -i "http://homeassistant.local:8099/sse"
+curl -i "http://homeassistant.local:8099/mcp"
 ```
 
 `400 Bad Request` (instead of a connection error or timeout) means the

@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-10-16
+
+### Changed
+
+- **MCP endpoint moved to `/mcp`.** Claude.ai selects the deprecated SSE
+  transport for any connector URL ending in `/sse` and shows a warning; `/mcp`
+  is the conventional Streamable HTTP path. `/sse` remains an alias (the path
+  is rewritten server-side), so existing mcp-remote / Claude.ai configs keep
+  working.
+- Dashboard and docs now describe the working Claude.ai setup: Streamable HTTP
+  transport, **No sign-in**, and the token in a `authorization: Bearer <token>`
+  request header (the "OAuth Client Secret" advice no longer works: Claude.ai
+  runs real OAuth discovery when client credentials are entered).
+
 ## [0.7.0] - 2026-10-15
 
 Fork point: [beausmith/homebox-mcp](https://github.com/beausmith/homebox-mcp), built on

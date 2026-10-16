@@ -52,8 +52,8 @@ class BearerAuthMiddleware:
         # Check for Authorization header
         auth_header = request.headers.get("Authorization", "")
 
-        # Log headers for debugging (only on /sse endpoint)
-        if path == "/sse":
+        # Log headers for debugging (only on the MCP endpoint)
+        if path == MCP_PATH:
             logger.info(f"Auth request to {path}")
             logger.info(f"Authorization header: {auth_header[:50] if auth_header else 'MISSING'}...")
 
@@ -177,7 +177,7 @@ async def get_status_data() -> dict[str, Any]:
         "items_count": 0,
         "labels_count": 0,
         "server_uptime": str(datetime.now() - server_start_time).split(".")[0],
-        "mcp_endpoint": "/sse",
+        "mcp_endpoint": MCP_PATH,
         "mcp_auth_enabled": config.mcp_auth_enabled,
     }
 
@@ -504,9 +504,10 @@ async def homepage(request):
             
             <div class="endpoint-section" style="margin-top: 20px;">
                 <div class="endpoint-label">🌐 Address for Claude.ai</div>
-                <div class="endpoint-url">https://your-domain.com<span style="color: #00ff88;">/sse</span></div>
+                <div class="endpoint-url">https://your-domain.com<span style="color: #00ff88;">/mcp</span></div>
                 <p class="endpoint-hint">
-                    After configuring the tunnel, use your domain address + <strong>/sse</strong> in Claude.ai
+                    After configuring the tunnel, use your domain address + <strong>/mcp</strong> in Claude.ai
+                    (the old <code>/sse</code> path still works as an alias)
                 </p>
             </div>
             
@@ -515,12 +516,12 @@ async def homepage(request):
                 <ol style="margin: 10px 0 0 20px; color: #8892b0;">
                     <li>Click <strong>🎲 Generate Token</strong> above and copy</li>
                     <li>In addon settings: enable <code>mcp_auth_enabled</code> and paste the token in <code>mcp_auth_token</code></li>
-                    <li>Configure Cloudflare Tunnel → <code>http://homeassistant:8099</code></li>
-                    <li>In Claude.ai:
+                    <li>Configure Cloudflare Tunnel → <code>http://&lt;addon-hostname&gt;:8099</code> (the hostname shown on the add-on's Info tab)</li>
+                    <li>In Claude.ai (Customize → Connectors → Add custom connector):
                         <ul style="margin-top: 5px;">
-                            <li>URL: <code>https://your-domain.com/sse</code></li>
-                            <li>OAuth Client ID: <code>mcp</code> (or any text)</li>
-                            <li>OAuth Client Secret: <strong>paste the token</strong></li>
+                            <li>URL: <code>https://your-domain.com/mcp</code>, Transport: <strong>Streamable HTTP</strong></li>
+                            <li>Authentication: <strong>No sign-in</strong></li>
+                            <li>Request headers → <code>authorization</code> = <code>Bearer &lt;token&gt;</code> (with the space)</li>
                         </ul>
                     </li>
                 </ol>
@@ -677,10 +678,28 @@ async def api_status(request):
 # racing over a session_id query param, which avoids this class of bug.
 # See https://github.com/modelcontextprotocol/python-sdk/issues/423 and
 # https://github.com/modelcontextprotocol/python-sdk/issues/1844.
-# `path="/sse"` keeps the existing endpoint URL working (mcp-remote already
-# tries Streamable HTTP first against whatever URL it's given before falling
-# back to legacy SSE), so no client-side reconfiguration is required.
-mcp_app = mcp.http_app(transport="http", path="/sse")
+# The endpoint lives at `/mcp` (the conventional Streamable HTTP path; Claude.ai
+# warns that a URL ending in `/sse` will use the deprecated SSE transport).
+# `/sse` is kept as an alias by rewriting the path in `LegacyPathAlias`, so
+# existing mcp-remote / Claude.ai configs keep working without changes.
+MCP_PATH = "/mcp"
+LEGACY_MCP_PATH = "/sse"
+mcp_app = mcp.http_app(transport="http", path=MCP_PATH)
+
+
+class LegacyPathAlias:
+    """Rewrite requests for the legacy `/sse` path onto the `/mcp` endpoint."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope.get("path") == LEGACY_MCP_PATH:
+            scope = dict(scope)
+            scope["path"] = MCP_PATH
+            scope["raw_path"] = MCP_PATH.encode()
+        await self.app(scope, receive, send)
+
 
 # Create custom Starlette app with MCP mounted and auth middleware
 app = Starlette(
@@ -690,6 +709,7 @@ app = Starlette(
         Mount("/", app=mcp_app),
     ],
     middleware=[
+        Middleware(LegacyPathAlias),
         Middleware(BearerAuthMiddleware),
     ],
     lifespan=mcp_app.lifespan,
@@ -700,7 +720,7 @@ if __name__ == "__main__":
     logger.info(f"Starting Homebox MCP Server on {config.server_host}:{config.server_port}")
     logger.info(f"Connecting to Homebox at: {config.homebox_url}")
     logger.info(f"Dashboard available at: http://{config.server_host}:{config.server_port}/")
-    logger.info(f"MCP endpoint (Streamable HTTP) at: http://{config.server_host}:{config.server_port}/sse")
+    logger.info(f"MCP endpoint (Streamable HTTP) at: http://{config.server_host}:{config.server_port}{MCP_PATH} (alias {LEGACY_MCP_PATH})")
 
     if config.mcp_auth_enabled:
         logger.info("MCP Authentication: ENABLED - Bearer token required")
