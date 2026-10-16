@@ -105,19 +105,21 @@ rule that only allows Anthropic's egress range (`160.79.104.0/21`).
    - Enable `mcp_auth_enabled`
    - Paste the token in `mcp_auth_token`
    - Click **Save**
-5. In **Claude.ai**, paste the same token in the **"OAuth Client Secret"** field
+5. Restart the addon, then enter the token in Claude.ai as a request header (table above)
 
 ### Recommended Homebox Addon
 
-This MCP was developed to work with the
-[homebox-addon](https://github.com/Crafter-Y/homebox-addon).
+This fork is developed and tested against
+[jscarrott/homebox-addon](https://github.com/jscarrott/homebox-addon) (Homebox v0.26.x, port 7745).
+Upstream's original recommendation, [Crafter-Y/homebox-addon](https://github.com/Crafter-Y/homebox-addon),
+should work as well.
 
-[![Open your Home Assistant instance and show the add add-on repository dialog with a specific repository URL pre-filled.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FCrafter-Y%2Fhomebox-addon)
+[![Open your Home Assistant instance and show the add add-on repository dialog with a specific repository URL pre-filled.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fjscarrott%2Fhomebox-addon)
 
 To install:
 
-1. Add the repository: `https://github.com/Crafter-Y/homebox-addon`
-2. Install the **Homebox** addon
+1. Add the repository: `https://github.com/jscarrott/homebox-addon`
+2. Install the **Homebox Add-on**
 3. Start and configure your inventory
 
 ### Finding the Homebox URL
@@ -197,48 +199,50 @@ http://192.168.X.X:8099/mcp
 
 ### External Access via Cloudflare Tunnel (Recommended)
 
-To expose the MCP securely on the internet (required for Claude.ai web),
-use the [Cloudflared addon](https://github.com/homeassistant-apps/app-cloudflared).
+Claude.ai connects from Anthropic's cloud, so the endpoint must be reachable from
+the internet. Nabu Casa only proxies Home Assistant itself, and the Tailscale
+addon's Funnel cannot share an addon port, so use the
+[Cloudflared addon](https://github.com/homeassistant-apps/app-cloudflared)
+(requires a domain whose DNS is on Cloudflare). Home Assistant itself stays
+unexposed.
 
 #### 1. Install the Cloudflared addon
 
-1. Add the repository to Home Assistant:
-   ```
-   https://github.com/homeassistant-apps/app-cloudflared
-   ```
-2. Install the **Cloudflared** addon
+Add the repository `https://github.com/homeassistant-apps/app-cloudflared` and
+install **Cloudflared**.
 
-#### 2. Configure in Cloudflare
+#### 2. Configure the Cloudflared addon
 
-1. Access [Cloudflare Zero Trust](https://one.dash.cloudflare.com/)
-2. Go to **Networks** → **Tunnels** → **Create a tunnel**
-3. Choose **Cloudflared** and name the tunnel
-4. Copy the generated token
-
-#### 3. Configure the Cloudflared addon
-
-Configure the addon to expose MCP port 8099:
+Leave `external_hostname` empty and expose only this addon, using its internal
+hostname from the **Info** tab (`<repository-id>-homebox-mcp`):
 
 ```yaml
+external_hostname: ""
 additional_hosts:
-  - hostname: mcp.yourdomain.com
-    service: http://homeassistant:8099
+  - hostname: homebox-mcp.yourdomain.com
+    service: http://ee45feb1-homebox-mcp:8099
 ```
 
-Or if you don't have your own domain, use a free Cloudflare subdomain:
+#### 3. Authorize the tunnel
 
-```yaml
-additional_hosts:
-  - hostname: mcp-homebox.yourdomain.workers.dev
-    service: http://homeassistant:8099
+Start Cloudflared and open its log. Open the printed
+`https://dash.cloudflare.com/argotunnel?...` link, sign in to the Cloudflare
+account that owns the domain, pick the domain and click **Authorize**. The addon
+then creates the tunnel and the DNS record itself. If no domain is offered,
+re-open the link while signed in to the right account.
+
+#### 4. Restrict the hostname to Anthropic (recommended)
+
+In the Cloudflare dashboard, inside the zone: **Security → Security rules →
+Create rule**, expression
+`(http.host eq "homebox-mcp.yourdomain.com" and not ip.src in {160.79.104.0/21})`,
+action **Block**. Afterwards the public URL answers 403 from everywhere except
+Anthropic's egress range, including your own LAN - test with the internal URL.
+
+#### 5. Final URL for Claude.ai
+
 ```
-
-#### 4. Final URL for Claude.ai
-
-After configured, use in Claude.ai:
-
-```
-https://mcp.yourdomain.com/mcp
+https://homebox-mcp.yourdomain.com/mcp
 ```
 
 ### Ingress Access (Alternative)
@@ -263,18 +267,20 @@ Add to your `claude_desktop_config.json`:
   "mcpServers": {
     "homebox": {
       "command": "npx",
-      "args": ["mcp-remote", "https://mcp.yourdomain.com/mcp"]
+      "args": ["mcp-remote", "https://homebox-mcp.yourdomain.com/mcp",
+               "--header", "Authorization:${AUTH_HEADER}"],
+      "env": { "AUTH_HEADER": "Bearer YOUR_MCP_TOKEN" }
     }
   }
 }
 ```
 
-### Configuring in Claude.ai Web (Experimental)
+### Configuring in Claude.ai Web
 
-1. Access the MCP settings in Claude.ai
-2. Add a new MCP server
-3. Paste the URL: `https://mcp.yourdomain.com/mcp`
-4. OAuth: Configure Client ID as `mcp` and Client Secret as your token
+Customize → Connectors → Add custom connector, as in the
+[Claude.ai Configuration](#claudeai-configuration) table above: URL
+`https://homebox-mcp.yourdomain.com/mcp`, No sign-in, request header
+`authorization: Bearer <token>`.
 
 ### Testing the Connection
 
@@ -289,23 +295,24 @@ the official testing tool and correctly speaks the Streamable HTTP handshake
 npx @modelcontextprotocol/inspector --server-url http://homeassistant.local:8099/mcp --transport http
 
 # Test via Cloudflare Tunnel
-npx @modelcontextprotocol/inspector --server-url https://mcp.yourdomain.com/mcp --transport http
+npx @modelcontextprotocol/inspector --server-url https://homebox-mcp.yourdomain.com/mcp --transport http
 ```
 
 #### Via terminal (curl)
 
-A plain `curl` GET can only confirm the server is reachable, not that MCP
-itself works — it can't complete the protocol handshake, so expect a
-`400 Bad Request` rather than a stream of data:
+Send an MCP `initialize` request (a plain GET cannot complete the Streamable
+HTTP handshake):
 
 ```bash
-curl -i "http://homeassistant.local:8099/mcp"
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://homeassistant.local:8099/mcp \
+  -H "Authorization: Bearer YOUR_MCP_TOKEN" \
+  -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
+  --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"probe","version":"0"}}}'
 ```
 
-`400 Bad Request` (instead of a connection error or timeout) means the
-server is up and reachable. If authentication is enabled, add
-`-H "Authorization: Bearer YOUR_TOKEN"` and expect the same `400` (not a
-`401 Unauthorized`) once the token is accepted.
+`200` = server up and token accepted; `401` = token missing or wrong;
+`403` from the public URL = blocked by the Cloudflare rule (expected from
+outside Anthropic's range).
 
 ## Usage Examples
 

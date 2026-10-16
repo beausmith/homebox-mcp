@@ -1,5 +1,7 @@
 # Homebox MCP Server - Home Assistant Add-on
 
+> **Nota:** este arquivo documenta a versão upstream (oangelo/homebox-mcp) e não foi atualizado para este fork. Veja o [README em inglês](README.md) para as instruções atuais (endpoint `/mcp`, Cloudflare Tunnel, cabeçalho `authorization` no Claude.ai).
+
 [![License][license-shield]](LICENSE.md)
 ![Supports aarch64 Architecture][aarch64-shield]
 ![Supports amd64 Architecture][amd64-shield]
