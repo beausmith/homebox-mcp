@@ -8,12 +8,10 @@ A Home Assistant add-on that runs an [MCP](https://modelcontextprotocol.io/) ser
 [Homebox](https://homebox.software/), so an AI assistant such as Claude can list, search,
 create, move and update the things in your home inventory.
 
-This is a maintained fork. It runs against current Homebox (v0.26+) and includes complete,
-tested instructions for connecting it to **Claude.ai** through a Cloudflare Tunnel. See
-[History](#history-and-credits) for where the code comes from.
+Works with current Homebox (v0.26+) and includes complete, tested instructions for connecting
+it to **Claude.ai** through a Cloudflare Tunnel.
 
-🇧🇷 The Portuguese files (`README-pt-br.md`, `homebox-mcp/DOCS-pt-br.md`) are upstream's and
-have not been updated for this fork.
+🇧🇷 [Versão em Português](README-pt-br.md) (documents an older version)
 
 ## Contents
 
@@ -29,7 +27,7 @@ have not been updated for this fork.
 - [MCP tools](#mcp-tools)
 - [Gotchas we hit](#gotchas-we-hit)
 - [Local development](#local-development)
-- [History and credits](#history-and-credits)
+- [Credits](#credits)
 
 ## What you get
 
@@ -46,11 +44,11 @@ have not been updated for this fork.
 
 ### A running Homebox
 
-We run Homebox as a Home Assistant add-on from
-[jscarrott/homebox-addon](https://github.com/jscarrott/homebox-addon) (add-on "Homebox Add-on",
-port 7745, packages Homebox v0.26.x). Upstream's original recommendation,
-[Crafter-Y/homebox-addon](https://github.com/Crafter-Y/homebox-addon), should also work; the MCP
-add-on only needs an HTTP URL and an API token.
+Run Homebox as a Home Assistant add-on. This project was developed with
+[Crafter-Y/homebox-addon](https://github.com/Crafter-Y/homebox-addon); the Homebox v0.26 support
+was tested against [jscarrott/homebox-addon](https://github.com/jscarrott/homebox-addon) (add-on
+"Homebox Add-on", port 7745, packages Homebox v0.26.x). Either works; the MCP add-on only needs
+an HTTP URL and an API token.
 
 [![Add the jscarrott/homebox-addon repository](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fjscarrott%2Fhomebox-addon)
 
@@ -75,20 +73,16 @@ Cloudflare. If you only use Claude Desktop or Claude Code from your LAN, you can
 
 ## 1. Install the add-on
 
-[![Open the Homebox MCP Server add-on page](https://my.home-assistant.io/badges/supervisor_addon.svg)](https://my.home-assistant.io/redirect/supervisor_addon/?addon=homebox-mcp&repository_url=https%3A%2F%2Fgithub.com%2Fbeausmith%2Fhomebox-mcp)
+[![Open the Homebox MCP Server add-on page](https://my.home-assistant.io/badges/supervisor_addon.svg)](https://my.home-assistant.io/redirect/supervisor_addon/?addon=homebox-mcp&repository_url=https%3A%2F%2Fgithub.com%2Foangelo%2Fhomebox-mcp)
 
 <details>
 <summary>Manual install</summary>
 
-1. **Settings → Add-ons → Add-on Store → ⋮ → Repositories**, add `https://github.com/beausmith/homebox-mcp`
+1. **Settings → Add-ons → Add-on Store → ⋮ → Repositories**, add `https://github.com/oangelo/homebox-mcp`
 2. Find **Homebox MCP Server** in the store and click **Install**. Supervisor builds the image
    locally; this takes a minute or two.
 
 </details>
-
-If you previously installed the upstream `oangelo/homebox-mcp` add-on, uninstall it first; both
-use the slug `homebox-mcp` and Home Assistant will not run two. Copy its `homebox_token` out of its
-configuration before you remove it.
 
 ## 2. Configure it
 
@@ -156,13 +150,14 @@ What does work, with no inbound port forward and without exposing Home Assistant
    **Cloudflared**.
 2. Configure it. Leave `external_hostname` **empty** (that option would expose Home Assistant; we
    only want the MCP server) and add one host. The service URL uses the MCP add-on's internal
-   hostname from its **Info** tab, which is `<repository-id>-homebox-mcp`:
+   hostname from its **Info** tab, `<repository-id>-homebox-mcp` (the id is derived from the
+   add-on repository URL, so it is the same for everyone installing from this repository):
 
    ```yaml
    external_hostname: ""
    additional_hosts:
      - hostname: homebox-mcp.yourdomain.com
-       service: http://ee45feb1-homebox-mcp:8099
+       service: http://b75fa3e1-homebox-mcp:8099
    ```
 
 3. Start the add-on and open its **Log**. It prints a `https://dash.cloudflare.com/argotunnel?...`
@@ -336,48 +331,27 @@ npx @modelcontextprotocol/inspector --server-url http://localhost:8099/mcp --tra
 Changes are listed in [homebox-mcp/CHANGELOG.md](homebox-mcp/CHANGELOG.md). Bump `version` in
 `homebox-mcp/config.yaml` for Supervisor to offer an update.
 
-## History and credits
+## Credits
 
-This add-on is a fork of **[oangelo/homebox-mcp](https://github.com/oangelo/homebox-mcp)** (MIT),
-which created the add-on, the dashboard, the token generator and the original tool set. Upstream
-has been inactive since February 2026 (last release 0.2.1) and targets the pre-0.26 Homebox API, so
-it stops working after a Homebox upgrade.
-
-The fork's `master` is built on:
-
-- **[MB901/homebox-mcp](https://github.com/MB901/homebox-mcp)**, branch `dev` (0.5.1dev9). This is
-  the bulk of the work beyond upstream: Homebox v0.26+ compatibility with API auto-detection,
-  switching the transport from the legacy SSE pair of endpoints to Streamable HTTP (which fixed
-  "Received request before initialization was complete" crashes with mcp-remote), fixing the
-  auth-middleware and location/label bugs, item attachments (base64 and from URL, with an SSRF
-  guard), purchase/warranty/sold fields, field-length validation, fractional quantities and the
-  complete dashboard tool list. MB901 submitted the core of this as
-  [oangelo/homebox-mcp PR #3](https://github.com/oangelo/homebox-mcp/pull/3) (August 2026), still
-  unmerged with failing CI at the time of forking, which is why this fork exists.
-- **[sheepster-9k/homebox-mcp](https://github.com/sheepster-9k/homebox-mcp)**: the UUID validation
-  of every id argument before it is interpolated into a URL was ported from this fork. Its other
-  changes (a rate-limiter memory cap, default host port 8100, relative ingress URLs, moving to
-  fastmcp 3.x with unpinned dependencies) were reviewed and not taken: this fork pins `fastmcp<3`
-  because the Alpine build of fastmcp 3 failed for them, keeps port 8099, and has no rate limiter.
-
-On top of that, this fork adds (see the changelog for details):
-
-- **0.7.0** (2026-10-15): nested location tree via `/entities/tree`, full-body item and location
-  updates that preserve custom fields, tags and parent, UUID validation, sanitized error messages
-  that never include the URL or token, metadata repointed here. Verified live against Homebox
-  v0.26.2.
-- **0.7.1** (2026-10-16): endpoint moved to `/mcp` with `/sse` kept as an alias, and the dashboard
-  and docs rewritten around the Claude.ai setup that actually works (Streamable HTTP, No sign-in,
-  token in an `authorization` request header).
-
-All three repositories above are audited rather than blindly merged; each line of `master` is
-traceable in `git log` (`upstream`, `MB901` and `sheepster` are configured as remotes).
+- [oangelo](https://github.com/oangelo) created the add-on, the dashboard, the token generator and
+  the original tool set.
+- [MB901](https://github.com/MB901/homebox-mcp) (`dev` branch, 0.5.1dev9): Homebox v0.26+
+  compatibility with API auto-detection, the move from the legacy SSE endpoint pair to Streamable
+  HTTP, auth-middleware and location/label fixes, item attachments (base64 and from URL, with an
+  SSRF guard), purchase/warranty/sold fields, field-length validation, fractional quantities and
+  the complete dashboard tool list.
+- [sheepster-9k](https://github.com/sheepster-9k/homebox-mcp): UUID validation of every id
+  argument before it reaches a URL.
+- 0.7.0 / 0.7.1 (see the [changelog](homebox-mcp/CHANGELOG.md)): nested location tree via
+  `/entities/tree`, full-body updates that preserve custom fields, tags and parent, sanitized error
+  messages, the `/mcp` endpoint with `/sse` alias, and this README's Cloudflare / Claude.ai guide,
+  all verified live against Homebox v0.26.2.
 
 ## License
 
-MIT License - see [LICENSE.md](LICENSE.md). Original work © oangelo; Homebox is © the
+MIT License - see [LICENSE.md](LICENSE.md). Homebox is © the
 [sysadminsmedia/homebox](https://github.com/sysadminsmedia/homebox) project.
 
-[license-shield]: https://img.shields.io/github/license/beausmith/homebox-mcp.svg
+[license-shield]: https://img.shields.io/github/license/oangelo/homebox-mcp.svg
 [aarch64-shield]: https://img.shields.io/badge/aarch64-yes-green.svg
 [amd64-shield]: https://img.shields.io/badge/amd64-yes-green.svg

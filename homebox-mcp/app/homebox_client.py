@@ -40,7 +40,7 @@ _MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 # LLM-supplied URL: cap on redirect hops followed, and a descriptive
 # User-Agent (some image hosts/CDNs reject the default httpx one).
 _MAX_REDIRECTS = 5
-_DOWNLOAD_USER_AGENT = "homebox-mcp (+https://github.com/beausmith/homebox-mcp)"
+_DOWNLOAD_USER_AGENT = "homebox-mcp (+https://github.com/oangelo/homebox-mcp)"
 
 # Homebox's own field length limits (Ent schema `.MaxLen()`, the real DB
 # constraint). Some of these (name, description) are also cleanly rejected

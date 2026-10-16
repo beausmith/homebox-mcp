@@ -109,10 +109,10 @@ rule that only allows Anthropic's egress range (`160.79.104.0/21`).
 
 ### Recommended Homebox Addon
 
-This fork is developed and tested against
-[jscarrott/homebox-addon](https://github.com/jscarrott/homebox-addon) (Homebox v0.26.x, port 7745).
-Upstream's original recommendation, [Crafter-Y/homebox-addon](https://github.com/Crafter-Y/homebox-addon),
-should work as well.
+This MCP was developed to work with
+[Crafter-Y/homebox-addon](https://github.com/Crafter-Y/homebox-addon); the Homebox v0.26
+support was tested against [jscarrott/homebox-addon](https://github.com/jscarrott/homebox-addon)
+(Homebox v0.26.2, port 7745). Either works - the addon only needs an HTTP URL and an API token.
 
 [![Open your Home Assistant instance and show the add add-on repository dialog with a specific repository URL pre-filled.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fjscarrott%2Fhomebox-addon)
 
@@ -220,7 +220,7 @@ hostname from the **Info** tab (`<repository-id>-homebox-mcp`):
 external_hostname: ""
 additional_hosts:
   - hostname: homebox-mcp.yourdomain.com
-    service: http://ee45feb1-homebox-mcp:8099
+    service: http://b75fa3e1-homebox-mcp:8099
 ```
 
 #### 3. Authorize the tunnel
@@ -382,4 +382,4 @@ ha addons logs homebox-mcp
 
 For issues or suggestions:
 
-- Open an issue on the [GitHub repository](https://github.com/beausmith/homebox-mcp)
+- Open an issue on the [GitHub repository](https://github.com/oangelo/homebox-mcp)

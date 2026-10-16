@@ -21,10 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.7.0] - 2026-10-15
 
-Fork point: [beausmith/homebox-mcp](https://github.com/beausmith/homebox-mcp), built on
-MB901's `dev` branch (0.5.1dev9) because upstream `oangelo/homebox-mcp` has been
-inactive since February 2026 and MB901's PR #3 is unmerged. Verified live against
-Homebox v0.26.2.
+Built on MB901's `dev` branch (0.5.1dev9, the Homebox v0.26 compatibility work of
+PR #3). Verified live against Homebox v0.26.2.
 
 ### Fixed
 
@@ -55,8 +53,7 @@ Homebox v0.26.2.
 
 ### Changed
 
-- Repository metadata, install links and the dashboard footer point at this
-  fork. Version 0.7.0.
+- Version 0.7.0.
 
 ## [0.5.1dev9] - 2026-08-16
 
